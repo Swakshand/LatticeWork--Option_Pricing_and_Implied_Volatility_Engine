@@ -1,0 +1,404 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Latticework &middot; Risk-Neutral Option Pricing</title>
+
+  
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
+    rel="stylesheet"
+  />
+
+  
+  <script src="https://cdn.plot.ly/plotly-2.35.2.min.js" charset="utf-8"></script>
+
+  
+  <script>
+    window.MathJax = {
+      tex: { inlineMath: [["\\(", "\\)"]], displayMath: [["\\[", "\\]"]] },
+      svg: { fontCache: "global" },
+    };
+  </script>
+  <script
+    id="MathJax-script"
+    async
+    src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"
+  ></script>
+
+  <link
+    rel="stylesheet"
+    href="{{ url_for('static', filename='style.css') }}"
+  />
+</head>
+<body>
+  <header class="masthead">
+    <div class="masthead-inner">
+      <div class="brand">
+        <span class="brand-mark">LW</span>
+        <div>
+          <h1>Latticework</h1>
+          <p class="subtitle">
+            An interactive lab for <em>risk-neutral</em> option pricing
+            &mdash; from the recombining binomial lattice to
+            Black&ndash;Scholes and the live volatility smile.
+          </p>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <main class="layout">
+    
+    <aside class="controls">
+      <h2>Inputs</h2>
+      <form id="pricer-form">
+        <div class="field">
+          <label for="S">Spot&nbsp;<span class="sym">\(S_0\)</span></label>
+          <input type="number" id="S" value="100" step="any" />
+        </div>
+        <div class="field">
+          <label for="K">Strike&nbsp;<span class="sym">\(K\)</span></label>
+          <input type="number" id="K" value="100" step="any" />
+        </div>
+        <div class="field">
+          <label for="r">Risk-free&nbsp;<span class="sym">\(r\)</span></label>
+          <input type="number" id="r" value="0.05" step="any" />
+        </div>
+        <div class="field">
+          <label for="sigma">Volatility&nbsp;<span class="sym">\(\sigma\)</span></label>
+          <input type="number" id="sigma" value="0.20" step="any" />
+        </div>
+        <div class="field">
+          <label for="T">Maturity&nbsp;<span class="sym">\(T\)</span> (yrs)</label>
+          <input type="number" id="T" value="1.0" step="any" />
+        </div>
+        <div class="field">
+          <label for="N">Lattice steps&nbsp;<span class="sym">\(N\)</span></label>
+          <input type="number" id="N" value="5" min="1" max="400" step="1" />
+          <small>Drawn tree capped at 60 nodes-deep for legibility.</small>
+        </div>
+        <div class="field">
+          <label for="n_max">Convergence up to N</label>
+          <input type="number" id="n_max" value="200" min="1" max="1000" step="1" />
+        </div>
+
+        <div class="field">
+          <label>Option type</label>
+          <div class="segmented" data-group="option_type">
+            <button type="button" class="seg active" data-value="call">Call</button>
+            <button type="button" class="seg" data-value="put">Put</button>
+          </div>
+        </div>
+        <div class="field">
+          <label>Exercise style</label>
+          <div class="segmented" data-group="exercise">
+            <button type="button" class="seg active" data-value="european">European</button>
+            <button type="button" class="seg" data-value="american">American</button>
+          </div>
+        </div>
+
+        <button type="submit" class="price-btn" id="price-btn">
+          Price option
+        </button>
+        <p class="err" id="err"></p>
+      </form>
+    </aside>
+
+    
+    <section class="content">
+      
+      <div class="cards">
+        <div class="card accent">
+          <div class="card-label">Binomial price <span id="card-N"></span></div>
+          <div class="card-value" id="binom-price">&mdash;</div>
+        </div>
+        <div class="card accent2">
+          <div class="card-label">Black&ndash;Scholes (European)</div>
+          <div class="card-value" id="bs-price">&mdash;</div>
+        </div>
+        <div class="card">
+          <div class="card-label">|Binomial &minus; BS|</div>
+          <div class="card-value" id="abs-diff">&mdash;</div>
+        </div>
+      </div>
+
+      
+      <div class="greeks" id="greeks">
+        <div><span>Δ delta</span><b id="g-delta">&mdash;</b></div>
+        <div><span>Γ gamma</span><b id="g-gamma">&mdash;</b></div>
+        <div><span>ν vega /1%</span><b id="g-vega">&mdash;</b></div>
+        <div><span>Θ theta /day</span><b id="g-theta">&mdash;</b></div>
+        <div><span>ρ rho /1%</span><b id="g-rho">&mdash;</b></div>
+      </div>
+
+      
+      <div class="panel">
+        <div class="panel-head">
+          <h3>1 &middot; The recombining binomial lattice</h3>
+          <p>
+            Each node carries an asset price and an option value. Hover to
+            inspect. Red rings (American options) mark where exercising early
+            beats holding.
+          </p>
+        </div>
+        <div id="lattice" class="plot"></div>
+      </div>
+
+      
+      <div class="panel">
+        <div class="panel-head">
+          <h3>2 &middot; Convergence to Black&ndash;Scholes</h3>
+          <p>
+            The binomial price oscillates in a decaying <em>sawtooth</em> around
+            the flat Black&ndash;Scholes benchmark as the number of steps grows.
+          </p>
+        </div>
+        <div id="convergence" class="plot"></div>
+      </div>
+
+      
+      <div class="panel">
+        <div class="panel-head">
+          <h3>3 &middot; Risk-neutral intuition</h3>
+          <p>
+            The price is the <em>discounted expected payoff under the
+            risk-neutral measure</em> \(\mathbb{Q}\). Here is that computation
+            laid bare for the drawn lattice
+            (<span id="rn-N">N</span> steps).
+          </p>
+        </div>
+        <div class="rn-grid">
+          <div class="rn-cell"><span>Step \(\Delta t\)</span><b id="rn-dt">&mdash;</b></div>
+          <div class="rn-cell"><span>Up factor \(u\)</span><b id="rn-u">&mdash;</b></div>
+          <div class="rn-cell"><span>Down factor \(d\)</span><b id="rn-d">&mdash;</b></div>
+          <div class="rn-cell hl"><span>RN prob \(p\)</span><b id="rn-p">&mdash;</b></div>
+          <div class="rn-cell"><span>Step discount \(e^{-r\Delta t}\)</span><b id="rn-disc">&mdash;</b></div>
+          <div class="rn-cell"><span>Total discount \(e^{-rT}\)</span><b id="rn-disct">&mdash;</b></div>
+          <div class="rn-cell"><span>\(\mathbb{E}^{\mathbb{Q}}[\text{payoff}]\)</span><b id="rn-exp">&mdash;</b></div>
+          <div class="rn-cell hl"><span>Discounted \(\mathbb{E}^{\mathbb{Q}}\)</span><b id="rn-dexp">&mdash;</b></div>
+        </div>
+        <p class="rn-note">
+          For a <em>European</em> option this discounted expectation equals the
+          binomial price exactly &mdash; backward induction is just this same
+          expectation computed one step at a time.
+        </p>
+      </div>
+
+      
+      <div class="panel">
+        <div class="panel-head">
+          <h3>4 &middot; Real market data: implied volatility &amp; the smile</h3>
+          <p>
+            Everything above assumes one flat volatility \(\sigma\). Here we fetch a
+            <em>real</em>, live option chain and back out the volatility the market is
+            actually implying at every strike &mdash; using our own Newton&ndash;Raphson
+            solver, not a data vendor's built-in number. Uses the Call/Put toggle and
+            risk-free rate \(r\) from the panel on the left.
+          </p>
+        </div>
+
+        <div class="mkt-controls">
+          <div class="field mkt-ticker-field">
+            <label for="mkt-ticker">Ticker</label>
+            <input type="text" id="mkt-ticker" value="AAPL" autocomplete="off" />
+          </div>
+          <div class="field mkt-expiry-field">
+            <label for="mkt-expiry">Expiry</label>
+            <select id="mkt-expiry" disabled>
+              <option>fetch first &rarr;</option>
+            </select>
+          </div>
+          <button type="button" class="price-btn mkt-btn" id="mkt-fetch-btn">
+            Fetch live data
+          </button>
+        </div>
+        <p class="err" id="mkt-err"></p>
+
+        <div class="mkt-stats" id="mkt-stats">
+          <div class="rn-cell">
+            <span>Spot (live)</span><b id="mkt-spot">&mdash;</b>
+          </div>
+          <div class="rn-cell">
+            <span>Historical vol (1yr, annualised)</span><b id="mkt-histvol">&mdash;</b>
+          </div>
+          <div class="rn-cell">
+            <span>As of</span><b id="mkt-asof">&mdash;</b>
+          </div>
+          <div class="rn-cell hl">
+            <span>Quotes used / dropped / no-IV</span><b id="mkt-quality">&mdash;</b>
+          </div>
+        </div>
+
+        <div id="smile" class="plot"></div>
+
+        <details class="smile-details">
+          <summary>Show per-strike table (market price &amp; solved implied vol)</summary>
+          <div class="smile-table-wrap">
+            <table class="smile-table">
+              <thead>
+                <tr>
+                  <th>Strike</th>
+                  <th>Market price</th>
+                  <th>Source</th>
+                  <th>Implied vol</th>
+                  <th>Solver</th>
+                </tr>
+              </thead>
+              <tbody id="smile-table-body"></tbody>
+            </table>
+          </div>
+        </details>
+      </div>
+
+      
+      <div class="panel math">
+        <div class="panel-head"><h3>The mathematics</h3></div>
+
+        <h4>No-arbitrage &amp; the risk-neutral measure</h4>
+        <p>
+          Over one step the option payoff can be replicated by holding
+          \(\Delta\) shares and some cash. No-arbitrage forces today's option
+          value to equal the cost of that replicating portfolio, which turns
+          out to be a discounted expectation under a measure \(\mathbb{Q}\) in
+          which the stock drifts at the risk-free rate:
+        </p>
+        \[
+          V_0 \;=\; e^{-rT}\,\mathbb{E}^{\mathbb{Q}}\!\left[\,\text{payoff}(S_T)\,\right].
+        \]
+
+        <h4>CRR parameters</h4>
+        <p>With \(\Delta t = T/N\), the Cox&ndash;Ross&ndash;Rubinstein choice is</p>
+        \[
+          u = e^{\sigma\sqrt{\Delta t}}, \qquad
+          d = \frac{1}{u} = e^{-\sigma\sqrt{\Delta t}}, \qquad
+          p = \frac{e^{r\Delta t} - d}{u - d}.
+        \]
+        <p>
+          The condition \(ud = 1\) makes the tree <em>recombine</em>, so after
+          \(i\) steps there are only \(i+1\) distinct prices
+          \(S_0\,u^{\,j} d^{\,i-j}\). The probability \(p\) is chosen so the
+          discounted stock price is a martingale: \(pu + (1-p)d = e^{r\Delta t}\).
+        </p>
+
+        <h4>Backward induction</h4>
+        <p>Set terminal values to the payoff, then roll back:</p>
+        \[
+          V_i^{\,j} = e^{-r\Delta t}\Big(p\,V_{i+1}^{\,j+1} + (1-p)\,V_{i+1}^{\,j}\Big).
+        \]
+
+        <h4>American early exercise</h4>
+        <p>
+          At every node compare the continuation value above against immediate
+          exercise, and keep the larger:
+        </p>
+        \[
+          V_i^{\,j} = \max\!\Big(\underbrace{\text{payoff}(S_i^{\,j})}_{\text{exercise}},\;
+          \underbrace{e^{-r\Delta t}\big(p\,V_{i+1}^{\,j+1} + (1-p)\,V_{i+1}^{\,j}\big)}_{\text{hold}}\Big).
+        \]
+
+        <h4>Convergence &amp; the sawtooth</h4>
+        <p>
+          As \(N \to \infty\) the binomial price converges to Black&ndash;Scholes.
+          The error decays like \(\mathcal{O}(1/N)\) but <em>oscillates</em>:
+          whether a terminal node sits just above or below the strike \(K\)
+          flips as \(N\) increments, shifting the payoff mass near the money and
+          producing the characteristic even/odd sawtooth.
+        </p>
+
+        <h4>Implied volatility &amp; the smile</h4>
+        <p>
+          Black&ndash;Scholes price is a strictly increasing function of
+          \(\sigma\) (its Vega is always \(\ge 0\)), so for any price inside
+          the no-arbitrage bounds there is exactly one \(\sigma\) that
+          reproduces it. <em>Implied volatility</em> is that \(\sigma\),
+          solved backwards from a real quoted price \(V_{\text{mkt}}\):
+        </p>
+        \[
+          \sigma_{\text{implied}} : \quad \text{BS}(S, K, r, \sigma_{\text{implied}}, T) = V_{\text{mkt}}.
+        \]
+        <p>
+          We solve this with <b>Newton&ndash;Raphson</b>: start from a
+          rule-of-thumb guess, then repeatedly step
+          \(\sigma \leftarrow \sigma - \dfrac{\text{BS}(\sigma) - V_{\text{mkt}}}{\text{Vega}(\sigma)}\),
+          using the model's own analytic Vega as the local slope. Far
+          out-of-the-money options have almost zero Vega, which makes
+          Newton's step unstable there &mdash; so we detect that and fall back
+          to plain <b>bisection</b> (slower, but guaranteed to converge once a
+          root is bracketed). Prices that sit outside the model-free
+          no-arbitrage bounds \([\max(S-Ke^{-rT},0),\,S]\) for a call are
+          rejected outright: no \(\sigma\) could ever produce them, which
+          usually means a stale or bad quote.
+        </p>
+        <p>
+          Plotting \(\sigma_{\text{implied}}\) against strike for a real
+          option chain (panel 4 above) produces the famous
+          <b>volatility smile/skew</b>: a curve, not a flat line. That shape
+          is direct, visible evidence that the constant-\(\sigma\) assumption
+          this whole dashboard otherwise relies on does not hold in real
+          markets.
+        </p>
+      </div>
+
+      
+      <div class="panel limits">
+        <div class="panel-head"><h3>Model assumptions &amp; limitations</h3></div>
+        <p>
+          Every number in this dashboard is only as good as the assumptions
+          behind it. Being explicit about where a model is known to break is
+          as important as the model itself:
+        </p>
+        <ul>
+          <li>
+            <b>Constant volatility.</b> Both the CRR tree and Black&ndash;Scholes
+            assume one \(\sigma\) for the whole life of the option. Panel 4
+            shows this is false for real markets &mdash; implied volatility
+            varies by strike (the smile/skew) and, in reality, by expiry too
+            (the full "volatility surface").
+          </li>
+          <li>
+            <b>No dividends.</b> The stock is assumed to pay nothing before
+            expiry. With dividends, the "American call = European call"
+            result checked in <code>smoke_test.py</code> can actually break:
+            early exercise can become optimal just before an ex-dividend date.
+          </li>
+          <li>
+            <b>Frictionless markets.</b> No transaction costs, no bid-ask
+            spread, unlimited borrowing/lending at the same risk-free rate,
+            and infinite liquidity at every price. Panel 4's real option
+            chain shows actual bid/ask spreads and volume/open-interest, i.e.
+            exactly the frictions this model ignores.
+          </li>
+          <li>
+            <b>Continuous, costless hedging (Black&ndash;Scholes specifically).</b>
+            The closed-form price assumes you can rebalance the replicating
+            portfolio continuously and for free. The CRR tree only
+            rebalances at <code>N</code> discrete steps &mdash; part of why it
+            differs from Black&ndash;Scholes at finite \(N\) (the sawtooth in
+            panel 2).
+          </li>
+          <li>
+            <b>Historical vs. implied volatility mismatch.</b> The "Fetch live
+            data" button in panel 4 fills \(\sigma\) with <em>historical</em>
+            (backward-looking, realised) volatility, while the smile shows
+            <em>implied</em> (forward-looking, market-priced) volatility at
+            each strike. They are rarely equal &mdash; comparing them is
+            itself a real, if simple, volatility-trading signal.
+          </li>
+        </ul>
+      </div>
+
+      <footer class="foot">
+        Latticework &mdash; an independent educational project
+      </footer>
+    </section>
+  </main>
+
+  <div id="loading" class="loading hidden"><div class="spinner"></div></div>
+
+  <script src="{{ url_for('static', filename='app.js') }}"></script>
+</body>
+</html>
