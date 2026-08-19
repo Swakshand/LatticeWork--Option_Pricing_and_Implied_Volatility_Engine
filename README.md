@@ -135,5 +135,3 @@ seven very different moneyness/volatility/maturity combinations (including a
 deep out-of-the-money, short-dated case specifically chosen to stress-test
 numerical underflow), plus explicit tests that impossible (arbitrage-violating)
 prices are correctly rejected rather than silently mishandled.
-
----
