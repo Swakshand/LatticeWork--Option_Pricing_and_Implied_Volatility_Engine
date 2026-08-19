@@ -1,47 +1,19 @@
-"""
-market_data.py
-===============
-
-Thin wrapper around `yfinance` for pulling the two pieces of real-world data
-the dashboard uses to connect the theory in :mod:`pricing` to actual markets:
-
-1. Spot price + trailing daily closes, to estimate *historical* (realised)
-   volatility -- an empirical alternative to guessing sigma.
-2. A live option chain for a single expiry, so we can back out *implied*
-   volatility (via :func:`pricing.implied_volatility`) at every traded strike
-   and plot the volatility smile/skew.
-
-Kept deliberately separate from :mod:`pricing`: the pricing maths never
-touches the network, so it stays fast, deterministic and unit-testable.
-Everything in this module can fail because of the internet, a bad ticker, or
-Yahoo Finance being temporarily unavailable -- so every public function
-raises a single, clearly-worded :class:`MarketDataError` on failure instead
-of leaking library-specific exceptions.
-"""
-
 from __future__ import annotations
-
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from math import sqrt
-
 import numpy as np
 import yfinance as yf
 
 OptionType = str
 
-
 class MarketDataError(RuntimeError):
-    """Raised whenever live market data cannot be fetched or is unusable."""
-
-
-
+    #Raised whenever live market data cannot be fetched or is unusable.
 
 
 @dataclass
 class HistoricalStats:
-    """Spot price + realised volatility estimated from recent daily closes."""
-
+    #Spot price + realised volatility estimated from recent daily closes.
     ticker: str
     spot: float
     hist_vol: float
@@ -50,14 +22,6 @@ class HistoricalStats:
 
 
 def get_historical_stats(ticker: str, lookback_days: int = 252) -> HistoricalStats:
-    """Fetch spot price and annualised historical volatility for ``ticker``.
-
-    Historical ("realised") volatility here is the textbook estimator: the
-    sample standard deviation of daily *log* returns, annualised by
-    multiplying by ``sqrt(252)`` (252 ~ trading days per year). It is
-    intentionally simple -- no GARCH, no exponential weighting -- so every
-    step is easy to explain and reproduce by hand.
-    """
     ticker = (ticker or "").strip().upper()
     if not ticker:
         raise MarketDataError("Please enter a ticker symbol.")
@@ -94,13 +58,9 @@ def get_historical_stats(ticker: str, lookback_days: int = 252) -> HistoricalSta
     )
 
 
-
-
-
 @dataclass
 class ChainRow:
-    """One usable strike from a real option chain."""
-
+    #One usable strike from a real option chain.
     strike: float
     market_price: float
     price_source: str
@@ -142,18 +102,7 @@ def get_option_chain(
     expiry: str | None = None,
     min_volume: float = 0,
 ) -> OptionChainData:
-    """Fetch one expiry's option chain and reduce it to what the smile needs.
 
-    Real option chains are messy -- this is the point of using them:
-
-    * We prefer the bid/ask **midpoint** as the "market price" whenever both
-      are quoted and positive (that's an actually-executable price), and fall
-      back to ``lastPrice`` (the last trade) otherwise -- common for
-      illiquid, far out-of-the-money strikes that haven't traded recently.
-    * Rows with no usable price at all are dropped rather than guessed at.
-    * ``min_volume`` optionally filters out contracts nobody is actually
-      trading, which tend to have noisy, stale, or simply wrong quotes.
-    """
     ticker = (ticker or "").strip().upper()
     if not ticker:
         raise MarketDataError("Please enter a ticker symbol.")
@@ -182,7 +131,6 @@ def get_option_chain(
         raise MarketDataError(f"Could not fetch the option chain for '{ticker}': {exc}") from exc
 
     table = (chain.calls if option_type == "call" else chain.puts).fillna(0)
-
     expiry_dt = datetime.strptime(expiry, "%Y-%m-%d").replace(tzinfo=timezone.utc)
     days_to_expiry = max((expiry_dt - datetime.now(timezone.utc)).days, 1)
     T = days_to_expiry / 365.0
@@ -225,3 +173,4 @@ def get_option_chain(
         ticker=ticker, spot=spot, expiry=expiry, T=T, option_type=option_type,
         rows=rows, n_dropped=n_dropped,
     )
+    

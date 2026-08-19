@@ -1,40 +1,9 @@
-"""
-test_pricing.py
-================
-
-Pytest unit tests for the pure numerical core in :mod:`pricing`. Deliberately
-has **no network dependency** (unlike the live market-data routes in
-``app.py``/``market_data.py``), so it runs deterministically anywhere,
-including CI.
-
-Run with:
-
-    pytest -v
-
-Covers:
-  * Put-call parity (a model-free, no-arbitrage identity).
-  * Binomial -> Black-Scholes convergence.
-  * The two American-exercise theorems (call == European; put > European).
-  * Internal consistency between the fast (`crr_price`) and full-lattice
-    (`crr_tree`) binomial implementations.
-  * The implied-volatility solver: round-trip recovery across a range of
-    moneyness/vol/maturity combinations, and correct rejection of prices that
-    violate no-arbitrage bounds.
-"""
-
 from __future__ import annotations
-
 from math import exp
-
 import pytest
-
 import pricing
 
 S, K, R, SIGMA, T = 100.0, 100.0, 0.05, 0.20, 1.0
-
-
-
-
 
 @pytest.mark.parametrize("option_type", ["call", "put"])
 def test_binomial_converges_to_black_scholes(option_type):
@@ -54,10 +23,7 @@ def test_put_call_parity():
     call = pricing.black_scholes(S, K, R, SIGMA, T, "call")
     put = pricing.black_scholes(S, K, R, SIGMA, T, "put")
     assert abs((call.price - put.price) - (S - K * exp(-R * T))) < 1e-8
-
-
-
-
+    
 
 def test_american_call_equals_european_call_without_dividends():
     american = pricing.crr_price(S, K, R, SIGMA, T, 500, "call", "american")
@@ -81,9 +47,6 @@ def test_no_early_exercise_nodes_flagged_for_calls(N):
         for j in range(i + 1)
     ]
     assert not any(flagged)
-
-
-
 
 
 @pytest.mark.parametrize(
@@ -135,3 +98,4 @@ def test_implied_volatility_falls_back_to_bisection_when_vega_is_tiny():
 
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-v"]))
+    

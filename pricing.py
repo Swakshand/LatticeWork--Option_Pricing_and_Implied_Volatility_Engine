@@ -1,81 +1,17 @@
-"""
-pricing.py
-==========
-
-Pricing engine for the *Latticework* educational project.
-
-This module implements two classic approaches to pricing European/American
-vanilla options and exposes everything needed to *visualise* the mechanics of
-risk-neutral valuation:
-
-1. The Cox-Ross-Rubinstein (CRR) binomial tree.
-2. The Black-Scholes closed-form solution (European benchmark) with greeks.
-
---------------------------------------------------------------------------
-Risk-neutral pricing in one paragraph
---------------------------------------------------------------------------
-Under the *no-arbitrage* assumption we can construct a self-financing
-portfolio of the underlying and a risk-free bond that perfectly replicates an
-option's payoff over a small time step. Because the replicating portfolio and
-the option must cost the same today (otherwise a free lunch exists), the
-option price does **not** depend on the real-world probability of the stock
-going up. Instead it equals the *discounted expectation of the payoff under a
-special probability measure* -- the risk-neutral measure -- in which every
-asset earns the risk-free rate on average. In the binomial world that measure
-is captured by a single number ``p``.
-
---------------------------------------------------------------------------
-The CRR parameterisation
---------------------------------------------------------------------------
-Split the life of the option ``T`` into ``N`` steps of length ``dt = T / N``.
-Over one step the stock either multiplies by ``u`` (up) or ``d`` (down):
-
-    u = exp(sigma * sqrt(dt))          (up factor)
-    d = 1 / u = exp(-sigma * sqrt(dt)) (down factor -> recombining tree)
-
-The recombining property (``u * d = 1``) is what makes the lattice collapse
-to ``N + 1`` terminal nodes instead of ``2**N`` -- essential for tractability.
-
-The risk-neutral up-probability is pinned down by requiring the discounted
-stock price to be a martingale (i.e. the stock earns ``r`` on average):
-
-    E^Q[S_{t+dt}] = S_t * exp(r * dt)
-    => p * u + (1 - p) * d = exp(r * dt)
-    => p = (exp(r * dt) - d) / (u - d)
-
-The option value at any node is the discounted risk-neutral expectation of its
-two children:
-
-    V = exp(-r * dt) * (p * V_up + (1 - p) * V_down)
-
-For an **American** option we additionally compare this "continuation value"
-against the payoff from exercising immediately and take the larger of the two.
-
-As ``N -> infinity`` the binomial European price converges to Black-Scholes.
-"""
-
 from __future__ import annotations
-
 from dataclasses import dataclass, field
 from math import exp, log, pi, sqrt
 from typing import Literal
-
 import numpy as np
 from scipy.stats import norm
 
 OptionType = Literal["call", "put"]
 ExerciseStyle = Literal["european", "american"]
 
-
-
-
-
 @dataclass
 class BinomialResult:
-    """Full output of a binomial valuation, including the lattices."""
-
+    #Full output of a binomial valuation, including the lattices.
     price: float
-
     dt: float
     u: float
     d: float
@@ -83,18 +19,14 @@ class BinomialResult:
     disc: float
     n_steps: int
 
-
     asset_tree: list[list[float]] = field(default_factory=list)
-
     value_tree: list[list[float]] = field(default_factory=list)
-
     exercise_tree: list[list[bool]] = field(default_factory=list)
 
 
 @dataclass
 class BlackScholesResult:
-    """Closed-form European price plus the standard greeks."""
-
+    #Closed-form European price plus the standard greeks.
     price: float
     delta: float
     gamma: float
@@ -107,21 +39,12 @@ class BlackScholesResult:
 
 @dataclass
 class ImpliedVolResult:
-    """Output of the implied-volatility solver.
-
-    ``sigma`` is ``None`` when no valid volatility could be found (e.g. the
-    quoted price violates the no-arbitrage bounds, so it isn't a Black-Scholes
-    price for *any* volatility).
-    """
-
+    #Output of the implied-volatility solver.
     sigma: float | None
     iterations: int
     converged: bool
     method: Literal["newton", "bisection", "failed"]
     error: str | None = None
-
-
-
 
 
 def black_scholes(
@@ -132,26 +55,7 @@ def black_scholes(
     T: float,
     option_type: OptionType = "call",
 ) -> BlackScholesResult:
-    """Price a European option with the Black-Scholes-Merton formula.
-
-    Parameters
-    ----------
-    S : spot price of the underlying
-    K : strike
-    r : continuously-compounded risk-free rate
-    sigma : annualised volatility
-    T : time to maturity in years
-    option_type : 'call' or 'put'
-
-    Returns
-    -------
-    BlackScholesResult with price and greeks.
-
-    Notes
-    -----
-    The formula is the ``N -> infinity`` limit of the CRR tree, so it is the
-    natural benchmark against which we measure binomial convergence.
-    """
+    #Price a European option with the Black-Scholes-Merton formula.
     if T <= 0 or sigma <= 0:
 
         intrinsic = max(S - K, 0.0) if option_type == "call" else max(K - S, 0.0)
@@ -177,7 +81,6 @@ def black_scholes(
         )
         rho = -K * T * exp(-r * T) * norm.cdf(-d2)
 
-
     gamma = norm.pdf(d1) / (S * sigma * sqrt(T))
     vega = S * norm.pdf(d1) * sqrt(T)
 
@@ -193,9 +96,6 @@ def black_scholes(
     )
 
 
-
-
-
 def implied_volatility(
     target_price: float,
     S: float,
@@ -206,35 +106,11 @@ def implied_volatility(
     tol: float = 1e-6,
     max_iter: int = 100,
 ) -> ImpliedVolResult:
-    """Back out the volatility that makes ``black_scholes`` reproduce a
-    quoted market price.
-
-    Why this works at all
-    ----------------------
-    Black-Scholes price is a *strictly increasing* function of sigma (Vega is
-    always >= 0), so for any price that lies inside the model's no-arbitrage
-    bounds there is exactly one sigma that reproduces it. "Implied volatility"
-    is just: which flat volatility, fed into the same formula everyone agrees
-    on, would have produced the price the market is actually trading at?
-
-    Method
-    ------
-    1. Reject prices that fall outside the model-free no-arbitrage bounds
-       (no sigma, however large or small, could ever produce them).
-    2. Start from the Brenner-Subrahmanyam approximation, a well-known
-       closed-form rule of thumb for an initial guess.
-    3. Run Newton-Raphson using the analytic Vega as the derivative -- this
-       converges in only a handful of iterations when it behaves well.
-    4. If Newton's step misbehaves (Vega ~ 0, far out-of-the-money options
-       have almost no sensitivity to volatility, or the step leaves a sane
-       volatility range), fall back to bisection, which is slower but always
-       converges once a root is bracketed.
-    """
+    #Back out the volatility that makes `black_scholes` reproduce a quoted market price.
     if T <= 0:
         return ImpliedVolResult(None, 0, False, "failed", error="T must be positive.")
     if S <= 0 or K <= 0:
         return ImpliedVolResult(None, 0, False, "failed", error="S and K must be positive.")
-
 
     discounted_K = K * exp(-r * T)
     if option_type == "call":
@@ -254,14 +130,8 @@ def implied_volatility(
             ),
         )
 
-
     sigma = sqrt(2 * pi / T) * (target_price / S)
     sigma = min(max(sigma, 0.02), 3.0)
-
-
-
-
-
 
 
     for i in range(max_iter):
@@ -275,8 +145,6 @@ def implied_volatility(
         if not (1e-4 < sigma_next < 5.0):
             break
         sigma = sigma_next
-
-
 
 
     lo, hi = 1e-4, 5.0
@@ -301,11 +169,8 @@ def implied_volatility(
     return ImpliedVolResult(0.5 * (lo + hi), max_iter, False, "bisection", error="Max iterations reached.")
 
 
-
-
-
 def _payoff(spots: np.ndarray, K: float, option_type: OptionType) -> np.ndarray:
-    """Vanilla payoff evaluated element-wise on an array of spot prices."""
+    #Vanilla payoff evaluated element-wise on an array of spot prices.
     if option_type == "call":
         return np.maximum(spots - K, 0.0)
     return np.maximum(K - spots, 0.0)
@@ -321,12 +186,7 @@ def crr_price(
     option_type: OptionType = "call",
     exercise: ExerciseStyle = "european",
 ) -> float:
-    """Fast CRR price (no lattice retained) using vectorised backward induction.
-
-    This is the workhorse used by the convergence study, where we re-price for
-    every ``N`` from 1 to a few hundred and therefore care about speed. Only
-    the option price is returned.
-    """
+    #Fast CRR price (no lattice retained) using vectorised backward induction.
     if N < 1:
         raise ValueError("N must be a positive integer.")
 
@@ -336,11 +196,9 @@ def crr_price(
     disc = exp(-r * dt)
     p = (exp(r * dt) - d) / (u - d)
 
-
     j = np.arange(N + 1)
     spots = S * (u**j) * (d ** (N - j))
     values = _payoff(spots, K, option_type)
-
 
     for i in range(N - 1, -1, -1):
 
@@ -362,15 +220,7 @@ def crr_tree(
     option_type: OptionType = "call",
     exercise: ExerciseStyle = "european",
 ) -> BinomialResult:
-    """CRR price **with** the full asset and option-value lattices retained.
-
-    Used for the interactive lattice visualisation, so ``N`` is expected to be
-    modest (a few dozen at most). The returned lattices are triangular:
-    ``tree[i]`` has ``i + 1`` entries, indexed by number of up-moves ``j``.
-
-    Backward induction is done node-by-node (rather than vectorised) so that we
-    can record, at each node, whether early exercise was optimal.
-    """
+    #CRR price **with** the full asset and option-value lattices retained.
     if N < 1:
         raise ValueError("N must be a positive integer.")
 
@@ -380,24 +230,20 @@ def crr_tree(
     disc = exp(-r * dt)
     p = (exp(r * dt) - d) / (u - d)
 
-
     asset_tree: list[list[float]] = []
     for i in range(N + 1):
         level = [S * (u**j) * (d ** (i - j)) for j in range(i + 1)]
         asset_tree.append(level)
 
 
-
     value_tree: list[list[float]] = [[0.0] * (i + 1) for i in range(N + 1)]
     exercise_tree: list[list[bool]] = [[False] * (i + 1) for i in range(N + 1)]
-
 
     for j in range(N + 1):
         payoff = _intrinsic(asset_tree[N][j], K, option_type)
         value_tree[N][j] = payoff
 
         exercise_tree[N][j] = payoff > 0.0
-
 
     for i in range(N - 1, -1, -1):
         for j in range(i + 1):
@@ -429,7 +275,7 @@ def crr_tree(
 
 
 def _intrinsic(spot: float, K: float, option_type: OptionType) -> float:
-    """Scalar vanilla payoff (helper for the node-by-node backward pass)."""
+    #Scalar vanilla payoff (helper for the node-by-node backward pass).
     if option_type == "call":
         return max(spot - K, 0.0)
     return max(K - spot, 0.0)
@@ -445,17 +291,9 @@ def convergence_series(
     exercise: ExerciseStyle = "european",
     n_max: int = 200,
 ) -> tuple[list[int], list[float]]:
-    """Binomial price as a function of the number of steps ``N``.
+    #Binomial price as a function of the number of steps `N`. Returns `(steps, prices)` where `steps = [1, 2, ..., n_max]`. Plotting `prices` against `steps` 
+    #produces the characteristic *sawtooth* that oscillates around and converges to the Black-Scholes value.
 
-    Returns ``(steps, prices)`` where ``steps = [1, 2, ..., n_max]``. Plotting
-    ``prices`` against ``steps`` produces the characteristic *sawtooth* that
-    oscillates around and converges to the Black-Scholes value.
-
-    Why the sawtooth? For a fixed strike, whether one of the ``N + 1`` terminal
-    nodes lands close to ``K`` alternates as ``N`` increases by one. This shifts
-    how much probability mass sits just in/out of the money near the strike,
-    producing an even/odd oscillation whose amplitude decays like ``O(1/N)``.
-    """
     steps = list(range(1, n_max + 1))
     prices = [
         crr_price(S, K, r, sigma, T, n, option_type, exercise) for n in steps
@@ -471,3 +309,4 @@ if __name__ == "__main__":
     print(f"Black-Scholes call : {bs.price:.6f}")
     print(f"Binomial (N=500)   : {binom:.6f}")
     print(f"|difference|       : {abs(bs.price - binom):.6f}")
+    

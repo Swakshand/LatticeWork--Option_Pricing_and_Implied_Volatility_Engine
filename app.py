@@ -1,39 +1,13 @@
-"""
-app.py
-======
-
-Flask dashboard for *Latticework*.
-
-The server does all of the numerical heavy lifting (in :mod:`pricing`) and
-constructs Plotly figures as JSON, which the front-end renders with Plotly.js.
-Keeping figure construction on the server means the browser only ever handles
-presentation, and the interesting mathematics lives in one documented place.
-
-Run with:
-
-    python app.py
-
-then open http://127.0.0.1:5002 in a browser.
-"""
-
 from __future__ import annotations
-
+from flask import Flask, jsonify, render_template, request
 import json
-
 import numpy as np
 import plotly.graph_objects as go
 import plotly.utils
-from flask import Flask, jsonify, render_template, request
-
 import market_data
 import pricing
 
 app = Flask(__name__)
-
-
-
-
-
 
 PALETTE = {
     "bg": "#0f1420",
@@ -48,9 +22,8 @@ PALETTE = {
     "exercise": "#f7768e",
 }
 
-
 def _base_layout(title: str) -> dict:
-    """Common Plotly layout so every chart shares the dashboard aesthetic."""
+    #Common Plotly layout so every chart shares the dashboard aesthetic.
     return dict(
         title=dict(text=title, font=dict(size=16, color=PALETTE["text"])),
         paper_bgcolor="rgba(0,0,0,0)",
@@ -73,23 +46,9 @@ def _base_layout(title: str) -> dict:
     )
 
 
-
-
-
 def build_lattice_figure(res: pricing.BinomialResult, option_type: str) -> go.Figure:
-    """Draw the recombining CRR lattice as a node-graph.
-
-    Node ``(i, j)`` (``i`` = step, ``j`` = up-moves) is placed at::
-
-        x = i            (time / step index)
-        y = 2*j - i      (net up-moves; keeps the tree symmetric & recombining)
-
-    Edges connect each node to its up and down children. Nodes are coloured by
-    option value; nodes where early exercise is optimal get a distinct ring.
-    """
+    #Draw the recombining CRR lattice as a node-graph.
     N = res.n_steps
-
-
     edge_x: list[float | None] = []
     edge_y: list[float | None] = []
     for i in range(N):
@@ -109,7 +68,6 @@ def build_lattice_figure(res: pricing.BinomialResult, option_type: str) -> go.Fi
         hoverinfo="skip",
         showlegend=False,
     )
-
 
     node_x, node_y = [], []
     colors, texts, ring_x, ring_y = [], [], [], []
@@ -134,7 +92,6 @@ def build_lattice_figure(res: pricing.BinomialResult, option_type: str) -> go.Fi
             if res.exercise_tree[i][j] and i < N:
                 ring_x.append(x)
                 ring_y.append(y)
-
 
     marker_size = max(6, min(22, 420 / (N + 2)))
 
@@ -161,7 +118,6 @@ def build_lattice_figure(res: pricing.BinomialResult, option_type: str) -> go.Fi
     )
 
     traces = [edge_trace, node_trace]
-
 
     if ring_x:
         traces.append(
@@ -206,9 +162,8 @@ def build_convergence_figure(
     bs_price: float,
     option_type: str,
 ) -> go.Figure:
-    """Binomial price vs. N, converging to the flat Black-Scholes line."""
+    #Binomial price vs. N, converging to the flat Black-Scholes line.
     fig = go.Figure()
-
 
     fig.add_trace(
         go.Scatter(
@@ -219,7 +174,6 @@ def build_convergence_figure(
             name=f"Black-Scholes = {bs_price:.4f}",
         )
     )
-
 
     fig.add_trace(
         go.Scatter(
@@ -233,9 +187,7 @@ def build_convergence_figure(
         )
     )
 
-    layout = _base_layout(
-        f"Binomial → Black-Scholes convergence&nbsp; ({option_type})"
-    )
+    layout = _base_layout(f"Binomial → Black-Scholes convergence&nbsp; ({option_type})")
     layout.update(
         xaxis=dict(
             title="number of steps N",
@@ -261,14 +213,10 @@ def build_smile_figure(
     expiry: str,
     option_type: str,
 ) -> go.Figure:
-    """Implied volatility (computed by *our own* Newton-Raphson solver, not
-    taken from a data vendor's own column) plotted against strike.
 
-    A flat Black-Scholes world would show a single horizontal line -- the one
-    sigma the whole dashboard otherwise assumes is constant. Real quotes
-    almost never look like that; the shape traced out here (smile/skew) is
-    live evidence of the "constant volatility" assumption breaking down.
-    """
+    #Implied volatility (computed by *our own* Newton-Raphson solver, not taken from a data vendor's own column) plotted against strike.
+    #A flat Black-Scholes world would show a single horizontal line -- the one sigma the whole dashboard otherwise assumes is constant. Real quotes
+    #almost never look like that; the shape traced out here (smile/skew) is live evidence of the "constant volatility" assumption breaking down.
     ok_rows = [row for row in smile_rows if row["iv"] is not None]
     strikes = [row["strike"] for row in ok_rows]
     ivs = [row["iv"] * 100 for row in ok_rows]
@@ -304,26 +252,17 @@ def build_smile_figure(
     )
     fig.update_layout(layout)
     return fig
-
-
-
-
+    
 
 @app.route("/")
 def index():
-    """Serve the single-page dashboard."""
+    #Serve the single-page dashboard.
     return render_template("index.html")
 
 
 @app.route("/api/price", methods=["POST"])
 def api_price():
-    """Price the option and return figures + numbers as JSON.
-
-    Expects a JSON body with the pricing inputs. Returns:
-      * scalar prices (binomial, Black-Scholes) and greeks,
-      * risk-neutral quantities (u, d, p, discount factor, ...),
-      * two Plotly figures (lattice + convergence) as JSON.
-    """
+    #Price the option and return figures + numbers as JSON.
     data = request.get_json(force=True)
 
     try:
@@ -347,25 +286,16 @@ def api_price():
     if not (1 <= n_max <= 1000):
         return jsonify(error="Convergence N must be between 1 and 1000."), 400
 
-
-
-
     draw_N = min(N, 60)
     res = pricing.crr_tree(S, K, r, sigma, T, draw_N, option_type, exercise)
-
-
     binom_price = pricing.crr_price(S, K, r, sigma, T, N, option_type, exercise)
-
     bs = pricing.black_scholes(S, K, r, sigma, T, option_type)
 
     steps, conv_prices = pricing.convergence_series(
         S, K, r, sigma, T, option_type, exercise, n_max=n_max
     )
-
     lattice_fig = build_lattice_figure(res, option_type)
     conv_fig = build_convergence_figure(steps, conv_prices, bs.price, option_type)
-
-
 
     terminal_spots = np.array(res.asset_tree[draw_N])
     terminal_payoffs = (
@@ -418,16 +348,9 @@ def api_price():
     return jsonify(payload)
 
 
-
-
-
 @app.route("/api/market/stats", methods=["POST"])
 def api_market_stats():
-    """Spot price + annualised historical volatility for a ticker.
-
-    Used to pre-fill the pricer's S and sigma inputs with real numbers
-    instead of guesses.
-    """
+    #Spot price + annualised historical volatility for a ticker. Used to pre-fill the pricer's S and sigma inputs with real numbers instead of guesses.
     data = request.get_json(force=True)
     ticker = data.get("ticker", "")
     lookback_days = int(data.get("lookback_days", 252))
@@ -448,7 +371,7 @@ def api_market_stats():
 
 @app.route("/api/market/expirations", methods=["POST"])
 def api_market_expirations():
-    """List every option-expiry date Yahoo Finance has for a ticker."""
+    #List every option-expiry date Yahoo Finance has for a ticker.
     data = request.get_json(force=True)
     ticker = data.get("ticker", "")
 
@@ -462,12 +385,8 @@ def api_market_expirations():
 
 @app.route("/api/market/smile", methods=["POST"])
 def api_market_smile():
-    """Fetch a real option chain and back out implied volatility at every
-    usable strike, using our own :func:`pricing.implied_volatility` solver.
-
-    Returns the smile chart plus a per-strike table so every number can be
-    inspected (market price, where it came from, and the recovered vol).
-    """
+    #Fetch a real option chain and back out implied volatility at every usable strike, using our own :func:`pricing.implied_volatility` solver.
+    #Returns the smile chart plus a per-strike table so every number can be inspected (market price, where it came from, and the recovered vol).
     data = request.get_json(force=True)
     ticker = data.get("ticker", "")
     option_type = data.get("option_type", "call")
@@ -518,6 +437,6 @@ def api_market_smile():
         fig=json.loads(json.dumps(fig, cls=plotly.utils.PlotlyJSONEncoder)),
     )
 
-
 if __name__ == "__main__":
     app.run(debug=True, port=5002)
+    

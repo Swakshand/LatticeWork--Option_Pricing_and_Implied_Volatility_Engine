@@ -1,32 +1,5 @@
-"""
-smoke_test.py
-=============
-
-Headless sanity checks for Latticework. Run with:
-
-    python smoke_test.py
-
-Checks performed:
-  1. The binomial *European* price converges to Black-Scholes as N grows
-     (|diff| < 0.05 at N = 500 for a standard at-the-money case).
-  2. American call on a non-dividend stock equals the European call (a known
-     no-early-exercise result), while an American put is worth strictly more
-     than its European counterpart.
-  3. Put-call parity holds for the Black-Scholes prices.
-  4. The implied-volatility solver recovers a known sigma from the price it
-     itself produced (a "round trip" check).
-  5. The Flask app boots and GET / returns HTTP 200. No server is left running.
-
-For a more thorough, network-free unit test suite (edge cases, parametrised
-implied-vol round trips across many strikes/maturities, etc.), see
-``test_pricing.py`` (run with ``pytest``). This script stays intentionally
-small and dependency-light so it can be run directly with plain Python.
-"""
-
 from __future__ import annotations
-
 import pricing
-
 
 def check(name: str, condition: bool, detail: str = "") -> bool:
     status = "PASS" if condition else "FAIL"
@@ -135,3 +108,4 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+    
